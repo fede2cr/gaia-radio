@@ -32,8 +32,8 @@ discover_service() {
         local raw
         raw=$(avahi-browse -t -p -r "$service_type" 2>/dev/null || true)
 
-        while IFS=';' read -r iface protocol resolved name stype domain hostname addr port txt; do
-            if [[ "$resolved" == "=" && -n "$addr" && -n "$port" ]]; then
+        while IFS=';' read -r event iface protocol name stype domain hostname addr port txt; do
+            if [[ "$event" == "=" && -n "$addr" && -n "$port" ]]; then
                 echo "[mdns] Found: ${name} at ${addr}:${port}" >&2
                 echo "${addr}:${port}"
                 return 0

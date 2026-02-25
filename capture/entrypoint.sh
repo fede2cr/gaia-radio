@@ -32,8 +32,8 @@ find_next_instance() {
     local raw
     raw=$(avahi-browse -t -p -r "$service_type" 2>/dev/null || true)
 
-    while IFS=';' read -r iface protocol resolved name stype domain hostname addr port txt; do
-        if [[ "$resolved" == "=" && "$name" =~ ^${base_name}-([0-9]+)$ ]]; then
+    while IFS=';' read -r event iface protocol name stype domain hostname addr port txt; do
+        if [[ "$event" == "=" && "$name" =~ ^${base_name}-([0-9]+)$ ]]; then
             local num="${BASH_REMATCH[1]}"
             # strip leading zeros for arithmetic
             num=$((10#$num))
