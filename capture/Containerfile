@@ -1,0 +1,21 @@
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    rtl-sdr \
+    librtlsdr0 \
+    avahi-daemon \
+    avahi-utils \
+    dbus \
+    tini \
+    bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# Allow avahi to run without a chroot
+RUN sed -i 's/^rlimit-nproc=.*/#&/' /etc/avahi/avahi-daemon.conf
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 1234
+
+ENTRYPOINT ["tini", "--", "/entrypoint.sh"]
