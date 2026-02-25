@@ -77,7 +77,6 @@ exec /usr/local/bin/readsb \
     --device "$READSB_DEVICE_INDEX" \
     --metric \
     --net \
-    --net-only no \
     --net-bo-port "$READSB_NET_BO_PORT" \
     --write-json /run/readsb \
     --write-json-every 1 \
