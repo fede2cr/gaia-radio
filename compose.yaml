@@ -19,6 +19,8 @@ services:
       - READSB_NET_RO_PORT=30002
       - READSB_NET_SBS_PORT=30003
       - DISCOVERY_TIMEOUT=60
+    volumes:
+      - readsb-json:/run/readsb
 
   web:
     build:
@@ -32,5 +34,10 @@ services:
       - processing
     environment:
       - WEB_PORT=8080
-      - PROCESSING_HOST=localhost
-      - PROCESSING_PORT=30005
+    volumes:
+      - readsb-json:/run/readsb:ro
+      - co2-state:/var/lib/co2tracker
+
+volumes:
+  readsb-json:
+  co2-state:

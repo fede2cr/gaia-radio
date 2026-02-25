@@ -9,11 +9,12 @@ ADS-B aircraft tracking stack split into three independently deployable containe
 │  gaia-radio-capture │      │  gaia-radio-processing  │      │   gaia-radio-web     │
 │                     │      │                         │      │                      │
 │  readsb (RTL-SDR)   │─────▶│  readsb (net-only)      │─────▶│  tar1090 + lighttpd  │
-│  Decodes ADS-B on   │Beast │  Aggregates Beast feeds │ JSON │  Web UI on port 8080 │
-│  the capture device │      │                         │      │                      │
-│  Announces:         │      │  Discovers:             │      │  Connects via env:   │
-│ _adsbbeast._tcp     │      │   _adsbbeast._tcp       │      │  PROCESSING_HOST     │
-│  :30005             │      │  Announces:             │      │  PROCESSING_PORT     │
+│  Decodes ADS-B on   │Beast │  Aggregates Beast feeds │      │  Web UI on port 8080 │
+│  the capture device │      │  Writes JSON to         │      │                      │
+│  Announces:         │      │   /run/readsb/          │      │  Reads JSON from     │
+│ _adsbbeast._tcp     │      │  Discovers:             │      │   /run/readsb/       │
+│  :30005             │      │   _adsbbeast._tcp       │      │  (shared volume)     │
+│                     │      │  Announces:             │      │                      │
 │                     │      │   _readsb._tcp          │      │                      │
 └─────────────────────┘      └─────────────────────────┘      └──────────────────────┘
      (e.g. Raspberry Pi)          (any host)                       (any host)
@@ -110,30 +111,18 @@ docker run -d \
 
 ### gaia-radio-web
 
-Runs `tar1090` served by lighttpd. Connects to `gaia-radio-processing` to fetch aircraft JSON data.
-
-Connects directly via `PROCESSING_HOST` and `PROCESSING_PORT` environment variables (defaults to `localhost:30005`, which works when colocated with processing on the same host).
-
-**Must be run with `--network host`** so it can reach readsb ports.
+Runs `tar1090` served by lighttpd. Reads aircraft JSON data from `/run/readsb/`, which must be a **shared volume** with the processing container (where readsb writes its JSON output).
 
 ```bash
 # Build
 docker build -t gaia-radio-web ./web
 
-# Run (same host as processing)
+# Run (must share /run/readsb with processing)
 docker run -d \
     --name gaia-radio-web \
     --network host \
+    -v readsb-json:/run/readsb:ro \
     -e WEB_PORT=8080 \
-    gaia-radio-web
-
-# Run (different host from processing)
-docker run -d \
-    --name gaia-radio-web \
-    --network host \
-    -e WEB_PORT=8080 \
-    -e PROCESSING_HOST=192.168.1.50 \
-    -e PROCESSING_PORT=30005 \
     gaia-radio-web
 ```
 
@@ -142,9 +131,7 @@ The tar1090 web UI is available at `http://<host>:8080`.
 | Environment Variable       | Default     | Description                              |
 |----------------------------|-------------|------------------------------------------|
 | `WEB_PORT`                 | `8080`      | Port for the web UI                      |
-| `PROCESSING_HOST`          | `localhost` | Hostname/IP of the readsb instance       |
-| `PROCESSING_PORT`          | `30005`     | Beast output port on the readsb instance |
-| `READSB_JSON_PORT`         | same as `PROCESSING_PORT` | Port for JSON HTTP API  |
+| `WAIT_TIMEOUT`             | `60`        | Seconds to wait for JSON data at startup |
 
 ## Running with Docker Compose
 
@@ -160,7 +147,7 @@ Or with Podman:
 podman compose up --build
 ```
 
-> **Note:** The compose file uses `network_mode: host` for all services. Processing uses mDNS to discover capture on the LAN. Web connects to processing directly via `localhost` since they share the same host.
+> **Note:** The compose file uses `network_mode: host` for all services. Processing uses mDNS to discover capture on the LAN. Processing and web share a `readsb-json` volume — readsb writes JSON to `/run/readsb/` and lighttpd serves it directly.
 
 ## Running capture on a Raspberry Pi
 
@@ -218,3 +205,33 @@ The GitHub Actions workflow in `.github/workflows/build-and-publish.yml` builds 
 |--------|---------------------|-------------------------------|
 | Secret | `DOCKERHUB_USERNAME`| Your Docker Hub username      |
 | Secret | `DOCKERHUB_TOKEN`   | A Docker Hub access token     |
+
+## CO₂ Tracker
+
+The web container includes a hybrid CO₂ emission tracker with **server-side** and **client-side** components.
+
+### Server-side daemon (`co2daemon.sh`)
+
+A background process inside the web container reads `/run/readsb/aircraft.json` every 5 seconds, computes Haversine distances, and estimates CO₂ using ADS-B emitter category factors. This runs **continuously** — no browser needed.
+
+State is stored in `/var/lib/co2tracker/` (the `co2-state` volume in compose). Totals and unique-aircraft counts persist across container restarts.
+
+The daemon publishes `co2data.json` which the web UI fetches.
+
+| Environment Variable | Default | Description                         |
+|----------------------|---------|-------------------------------------|
+| `CO2_INTERVAL`       | `5`     | Seconds between tracking cycles     |
+
+### Client-side module (`co2tracker.js`)
+
+A floating panel on the map that shows:
+
+- **All time** — from the server daemon (or localStorage fallback if daemon is unreachable)
+- **Session** — CO₂ and distance since the current page load, using type-specific emission factors for ~150 ICAO codes
+- **Per-aircraft** detail when a plane is selected (distance, CO₂, emission factor source)
+
+A green dot indicates the server daemon is active; grey means browser-only mode.
+
+The panel can be collapsed by clicking its header.
+
+> **Note:** Emission values are rough estimates based on typical cruise fuel burn. The server uses ADS-B category-based factors; the client uses more accurate ICAO type-specific factors when available. Actual emissions vary with payload, altitude, weather, and phase of flight.
