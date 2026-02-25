@@ -1,0 +1,51 @@
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    bash \
+    wget \
+    lighttpd \
+    tini \
+    jq \
+    media-types \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 https://github.com/wiedehopf/tar1090.git /src/tar1090
+
+# Install tar1090 web files into lighttpd document root
+RUN mkdir -p /var/www/html/tar1090 && \
+    cp -r /src/tar1090/html/* /var/www/html/tar1090/ && \
+    rm -rf /src/tar1090
+
+# Create directories for data and config
+RUN mkdir -p /run/readsb /etc/lighttpd/conf-enabled
+
+# Lighttpd configuration for tar1090
+RUN cat <<'EOF' > /etc/lighttpd/conf-enabled/tar1090.conf
+server.modules += ("mod_setenv", "mod_alias", "mod_redirect")
+
+alias.url += (
+    "/data/" => "/run/readsb/",
+    "/tar1090/" => "/var/www/html/tar1090/",
+    "/" => "/var/www/html/tar1090/"
+)
+
+$HTTP["url"] =~ "^/data/.*\.json$" {
+    setenv.add-response-header = (
+        "Access-Control-Allow-Origin" => "*",
+        "Cache-Control" => "no-cache, no-store, must-revalidate"
+    )
+}
+EOF
+
+# Update lighttpd to listen on port 8080
+RUN sed -i 's/server.port\s*=.*/server.port = 8080/' /etc/lighttpd/lighttpd.conf || \
+    echo 'server.port = 8080' >> /etc/lighttpd/lighttpd.conf
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 8080
+
+ENTRYPOINT ["tini", "--", "/entrypoint.sh"]

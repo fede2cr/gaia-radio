@@ -1,0 +1,52 @@
+services:
+  readsb:
+    build:
+      context: ./readsb
+      dockerfile: Containerfile
+    container_name: readsb
+    restart: unless-stopped
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    ports:
+      - "30002:30002"   # Raw output
+      - "30003:30003"   # SBS / BaseStation
+      - "30005:30005"   # Beast output
+    volumes:
+      - readsb_data:/run/readsb
+    # Override CMD defaults here if needed, e.g. set lat/lon:
+    # command:
+    #   - "--metric"
+    #   - "--net"
+    #   - "--device-type"
+    #   - "rtlsdr"
+    #   - "--lat"
+    #   - "40.0"
+    #   - "--lon"
+    #   - "-3.0"
+    #   - "--write-json"
+    #   - "/run/readsb"
+    #   - "--write-json-every"
+    #   - "1"
+    #   - "--net-ro-port"
+    #   - "30002"
+    #   - "--net-sbs-port"
+    #   - "30003"
+    #   - "--net-bo-port"
+    #   - "30005"
+
+  tar1090:
+    build:
+      context: ./tar1090
+      dockerfile: Containerfile
+    container_name: tar1090
+    restart: unless-stopped
+    depends_on:
+      - readsb
+    environment:
+      - READSB_HOST=readsb
+      - READSB_PORT=30005
+    ports:
+      - "8080:8080"
+
+volumes:
+  readsb_data:
