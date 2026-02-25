@@ -8,8 +8,8 @@ on:
     branches: [main]
 
 env:
-  DOCKERHUB_READSB_IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/gaia-radio-readsb
-  DOCKERHUB_TAR1090_IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/gaia-radio-tar1090
+  DOCKERHUB_READSB_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/gaia-radio-readsb
+  DOCKERHUB_TAR1090_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/gaia-radio-tar1090
 
 jobs:
   build-readsb:
@@ -43,7 +43,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push readsb
@@ -89,7 +89,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push tar1090
