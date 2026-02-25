@@ -7,7 +7,7 @@ READSB_NET_BO_PORT="${READSB_NET_BO_PORT:-30005}"
 READSB_NET_RI_PORT="${READSB_NET_RI_PORT:-30001}"
 READSB_EXTRA_ARGS="${READSB_EXTRA_ARGS:-}"
 
-CAPTURE_SERVICE_TYPE="_rtltcp._tcp"
+CAPTURE_SERVICE_TYPE="_adsbbeast._tcp"
 ANNOUNCE_SERVICE_TYPE="_readsb._tcp"
 BASE_NAME="gaia-radio-processing"
 
@@ -15,16 +15,20 @@ DISCOVERY_TIMEOUT="${DISCOVERY_TIMEOUT:-30}"
 DISCOVERY_RETRY_INTERVAL="${DISCOVERY_RETRY_INTERVAL:-5}"
 
 # ---------- mDNS helpers ----------
+# Processing runs its own avahi-daemon so it can discover capture
+# services on the LAN and announce itself.
 
 start_mdns() {
     if [ ! -d /run/dbus ]; then
         mkdir -p /run/dbus
     fi
+    rm -f /run/dbus/pid /run/dbus/system_bus_socket
     dbus-daemon --system --nofork &
-    sleep 0.5
+    sleep 1
 
     avahi-daemon --daemonize --no-chroot 2>/dev/null || true
     sleep 1
+    echo "[mdns] avahi-daemon started"
 }
 
 find_next_instance() {
@@ -33,7 +37,7 @@ find_next_instance() {
     local max_num=0
 
     local raw
-    raw=$(avahi-browse -t -p -r "$service_type" 2>/dev/null || true)
+    raw=$(timeout 5 avahi-browse -p -r "$service_type" 2>/dev/null || true)
 
     while IFS=';' read -r event iface protocol name stype domain hostname addr port txt; do
         if [[ "$event" == "=" && "$name" =~ ^${base_name}-([0-9]+)$ ]]; then
@@ -62,26 +66,70 @@ announce_service() {
 }
 
 # Discover the first available instance of a service type.
-# Returns "host:port" on stdout, or exits if not found within timeout.
+# Returns "host port" (space-separated) on stdout, or exits if not found within timeout.
+# Prefers IPv4 addresses over IPv6 to avoid colon-parsing issues.
 discover_service() {
     local service_type="$1"
     local deadline=$((SECONDS + DISCOVERY_TIMEOUT))
 
     echo "[mdns] Waiting for upstream service ${service_type}..." >&2
 
+    # Quick sanity check: can we talk to avahi at all?
+    echo "[mdns] D-Bus sanity check:" >&2
+    local check_out
+    check_out=$(timeout 3 avahi-browse -a -t -p 2>&1 || true)
+    if [ -z "$check_out" ]; then
+        echo "[mdns] WARNING: avahi-browse returned nothing. Is avahi-daemon running on the host?" >&2
+        echo "[mdns] Check: systemctl status avahi-daemon" >&2
+        echo "[mdns] Check: ls -la /var/run/dbus/system_bus_socket" >&2
+    else
+        echo "[mdns] avahi-browse is working (got $(echo "$check_out" | wc -l) lines)" >&2
+    fi
+
     while (( SECONDS < deadline )); do
-        local raw
-        raw=$(avahi-browse -t -p -r "$service_type" 2>/dev/null || true)
+        local tmpfile
+        tmpfile=$(mktemp)
+
+        # Capture raw output for debugging; stderr goes to container logs
+        timeout "$DISCOVERY_RETRY_INTERVAL" avahi-browse -p -r "$service_type" >"$tmpfile" 2>&2 || true
+
+        local line_count
+        line_count=$(wc -l < "$tmpfile")
+        if (( line_count > 0 )); then
+            echo "[mdns] avahi-browse returned ${line_count} lines for ${service_type}:" >&2
+            head -5 "$tmpfile" >&2
+        fi
+
+        local ipv4_addr="" ipv4_port="" ipv4_name=""
+        local ipv6_addr="" ipv6_port="" ipv6_name=""
 
         while IFS=';' read -r event iface protocol name stype domain hostname addr port txt; do
             if [[ "$event" == "=" && -n "$addr" && -n "$port" ]]; then
-                echo "[mdns] Found: ${name} at ${addr}:${port}" >&2
-                echo "${addr}:${port}"
-                return 0
+                if [[ "$protocol" == "IPv4" && -z "$ipv4_addr" ]]; then
+                    ipv4_addr="$addr"
+                    ipv4_port="$port"
+                    ipv4_name="$name"
+                elif [[ "$protocol" == "IPv6" && -z "$ipv6_addr" ]]; then
+                    ipv6_addr="$addr"
+                    ipv6_port="$port"
+                    ipv6_name="$name"
+                fi
             fi
-        done <<< "$raw"
+        done < "$tmpfile"
 
-        echo "[mdns] No ${service_type} found yet, retrying in ${DISCOVERY_RETRY_INTERVAL}s..." >&2
+        rm -f "$tmpfile"
+
+        if [[ -n "$ipv4_addr" ]]; then
+            echo "[mdns] Found (IPv4): ${ipv4_name} at ${ipv4_addr}:${ipv4_port}" >&2
+            echo "${ipv4_addr} ${ipv4_port}"
+            return 0
+        elif [[ -n "$ipv6_addr" ]]; then
+            echo "[mdns] Found (IPv6): ${ipv6_name} at [${ipv6_addr}]:${ipv6_port}" >&2
+            echo "${ipv6_addr} ${ipv6_port}"
+            return 0
+        fi
+
+        echo "[mdns] No ${service_type} found yet, sleeping ${DISCOVERY_RETRY_INTERVAL}s before retry..." >&2
         sleep "$DISCOVERY_RETRY_INTERVAL"
     done
 
@@ -95,10 +143,8 @@ echo "[processing] Starting mDNS subsystem..."
 start_mdns
 
 echo "[processing] Discovering capture service (${CAPTURE_SERVICE_TYPE})..."
-CAPTURE_ENDPOINT=$(discover_service "$CAPTURE_SERVICE_TYPE")
-CAPTURE_HOST="${CAPTURE_ENDPOINT%%:*}"
-CAPTURE_PORT="${CAPTURE_ENDPOINT##*:}"
-echo "[processing] Will connect to rtl_tcp at ${CAPTURE_HOST}:${CAPTURE_PORT}"
+read -r CAPTURE_HOST CAPTURE_PORT <<< "$(discover_service "$CAPTURE_SERVICE_TYPE")"
+echo "[processing] Will connect to capture Beast output at ${CAPTURE_HOST}:${CAPTURE_PORT}"
 
 echo "[processing] Discovering existing processing instances..."
 INSTANCE_NUM=$(find_next_instance "$ANNOUNCE_SERVICE_TYPE" "$BASE_NAME")
@@ -111,8 +157,8 @@ echo "[processing] Starting readsb..."
 exec /usr/local/bin/readsb \
     --metric \
     --net \
-    --device-type rtltcp \
-    --device "rtltcp:${CAPTURE_HOST}:${CAPTURE_PORT}" \
+    --net-only \
+    --net-connector "${CAPTURE_HOST},${CAPTURE_PORT},beast_in" \
     --net-bo-port "$READSB_NET_BO_PORT" \
     --net-ro-port "$READSB_NET_RO_PORT" \
     --net-sbs-port "$READSB_NET_SBS_PORT" \

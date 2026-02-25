@@ -2,62 +2,16 @@
 set -e
 
 WEB_PORT="${WEB_PORT:-8080}"
-PROCESSING_SERVICE_TYPE="_readsb._tcp"
 
-DISCOVERY_TIMEOUT="${DISCOVERY_TIMEOUT:-30}"
-DISCOVERY_RETRY_INTERVAL="${DISCOVERY_RETRY_INTERVAL:-5}"
-
-# ---------- mDNS helpers ----------
-
-start_mdns() {
-    if [ ! -d /run/dbus ]; then
-        mkdir -p /run/dbus
-    fi
-    dbus-daemon --system --nofork &
-    sleep 0.5
-
-    avahi-daemon --daemonize --no-chroot 2>/dev/null || true
-    sleep 1
-}
-
-# Discover the first available instance of a service type.
-# Returns "host:port" on stdout, or exits if not found within timeout.
-discover_service() {
-    local service_type="$1"
-    local deadline=$((SECONDS + DISCOVERY_TIMEOUT))
-
-    echo "[mdns] Waiting for upstream service ${service_type}..." >&2
-
-    while (( SECONDS < deadline )); do
-        local raw
-        raw=$(avahi-browse -t -p -r "$service_type" 2>/dev/null || true)
-
-        while IFS=';' read -r event iface protocol name stype domain hostname addr port txt; do
-            if [[ "$event" == "=" && -n "$addr" && -n "$port" ]]; then
-                echo "[mdns] Found: ${name} at ${addr}:${port}" >&2
-                echo "${addr}:${port}"
-                return 0
-            fi
-        done <<< "$raw"
-
-        echo "[mdns] No ${service_type} found yet, retrying in ${DISCOVERY_RETRY_INTERVAL}s..." >&2
-        sleep "$DISCOVERY_RETRY_INTERVAL"
-    done
-
-    echo "[mdns] ERROR: Could not find ${service_type} within ${DISCOVERY_TIMEOUT}s" >&2
-    return 1
-}
+# Direct connection to processing (readsb).
+# Set PROCESSING_HOST and PROCESSING_PORT to connect without mDNS.
+# Defaults to localhost:30005 (same host as processing).
+PROCESSING_HOST="${PROCESSING_HOST:-localhost}"
+PROCESSING_PORT="${PROCESSING_PORT:-30005}"
 
 # ---------- Main ----------
 
-echo "[web] Starting mDNS subsystem..."
-start_mdns
-
-echo "[web] Discovering processing service (${PROCESSING_SERVICE_TYPE})..."
-PROCESSING_ENDPOINT=$(discover_service "$PROCESSING_SERVICE_TYPE")
-PROCESSING_HOST="${PROCESSING_ENDPOINT%%:*}"
-PROCESSING_PORT="${PROCESSING_ENDPOINT##*:}"
-echo "[web] Will fetch data from readsb at ${PROCESSING_HOST}:${PROCESSING_PORT}"
+echo "[web] Connecting to readsb at ${PROCESSING_HOST}:${PROCESSING_PORT}"
 
 # Generate tar1090 config
 cat > /var/www/html/tar1090/config.js <<JSEOF
@@ -91,7 +45,6 @@ FETCHEOF
 chmod +x /usr/local/bin/fetch-readsb-json.sh
 
 # Start the JSON fetcher in the background
-# Note: readsb exposes JSON via its net-http-port (default 30152) when --net is used
 READSB_JSON_PORT="${READSB_JSON_PORT:-${PROCESSING_PORT}}"
 /usr/local/bin/fetch-readsb-json.sh "$PROCESSING_HOST" "$READSB_JSON_PORT" &
 

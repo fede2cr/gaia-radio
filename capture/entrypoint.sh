@@ -1,22 +1,23 @@
 #!/bin/bash
 set -e
 
-RTL_TCP_PORT="${RTL_TCP_PORT:-1234}"
-RTL_TCP_BIND="${RTL_TCP_BIND:-0.0.0.0}"
-RTL_TCP_DEVICE_INDEX="${RTL_TCP_DEVICE_INDEX:-0}"
-RTL_TCP_EXTRA_ARGS="${RTL_TCP_EXTRA_ARGS:-}"
-SERVICE_TYPE="_rtltcp._tcp"
+READSB_DEVICE_INDEX="${READSB_DEVICE_INDEX:-0}"
+READSB_NET_BO_PORT="${READSB_NET_BO_PORT:-30005}"
+READSB_EXTRA_ARGS="${READSB_EXTRA_ARGS:-}"
+SERVICE_TYPE="_adsbbeast._tcp"
 BASE_NAME="gaia-radio-capture"
 
 # ---------- mDNS helpers ----------
+# Capture runs on standalone hardware, so it needs its own avahi-daemon.
 
 start_mdns() {
     # Start dbus (required by avahi)
     if [ ! -d /run/dbus ]; then
         mkdir -p /run/dbus
     fi
+    rm -f /run/dbus/pid /run/dbus/system_bus_socket
     dbus-daemon --system --nofork &
-    sleep 0.5
+    sleep 1
 
     # Start avahi-daemon
     avahi-daemon --daemonize --no-chroot 2>/dev/null || true
@@ -28,14 +29,13 @@ find_next_instance() {
     local base_name="$2"
     local max_num=0
 
-    # Browse for existing services (parseable output, terminate after search)
+    # Browse the network for a few seconds to collect existing instances
     local raw
-    raw=$(avahi-browse -t -p -r "$service_type" 2>/dev/null || true)
+    raw=$(timeout 5 avahi-browse -p -r "$service_type" 2>/dev/null || true)
 
     while IFS=';' read -r event iface protocol name stype domain hostname addr port txt; do
         if [[ "$event" == "=" && "$name" =~ ^${base_name}-([0-9]+)$ ]]; then
             local num="${BASH_REMATCH[1]}"
-            # strip leading zeros for arithmetic
             num=$((10#$num))
             if (( num > max_num )); then
                 max_num=$num
@@ -69,11 +69,17 @@ INSTANCE_NUM=$(find_next_instance "$SERVICE_TYPE" "$BASE_NAME")
 INSTANCE_NAME="${BASE_NAME}-${INSTANCE_NUM}"
 echo "[capture] This instance will be: ${INSTANCE_NAME}"
 
-announce_service "$INSTANCE_NAME" "$SERVICE_TYPE" "$RTL_TCP_PORT"
+announce_service "$INSTANCE_NAME" "$SERVICE_TYPE" "$READSB_NET_BO_PORT"
 
-echo "[capture] Starting rtl_tcp on ${RTL_TCP_BIND}:${RTL_TCP_PORT} (device index ${RTL_TCP_DEVICE_INDEX})..."
-exec rtl_tcp \
-    -a "$RTL_TCP_BIND" \
-    -p "$RTL_TCP_PORT" \
-    -d "$RTL_TCP_DEVICE_INDEX" \
-    $RTL_TCP_EXTRA_ARGS
+echo "[capture] Starting readsb (device index ${READSB_DEVICE_INDEX}, Beast output on port ${READSB_NET_BO_PORT})..."
+exec /usr/local/bin/readsb \
+    --device-type rtlsdr \
+    --device "$READSB_DEVICE_INDEX" \
+    --metric \
+    --net \
+    --net-only no \
+    --net-bo-port "$READSB_NET_BO_PORT" \
+    --write-json /run/readsb \
+    --write-json-every 1 \
+    --json-location-accuracy 2 \
+    $READSB_EXTRA_ARGS

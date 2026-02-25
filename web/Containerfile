@@ -9,9 +9,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
     jq \
     media-types \
-    avahi-daemon \
-    avahi-utils \
-    dbus \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --depth 1 https://github.com/wiedehopf/tar1090.git /src/tar1090
@@ -45,9 +42,6 @@ EOF
 # Update lighttpd to listen on port 8080
 RUN sed -i 's/server.port\s*=.*/server.port = 8080/' /etc/lighttpd/lighttpd.conf || \
     echo 'server.port = 8080' >> /etc/lighttpd/lighttpd.conf
-
-# Allow avahi to run without a chroot
-RUN sed -i 's/^rlimit-nproc=.*/#&/' /etc/avahi/avahi-daemon.conf
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

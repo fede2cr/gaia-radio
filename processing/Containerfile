@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /src/readsb/readsb /usr/local/bin/readsb
 
-# Allow avahi to run without a chroot
+# Allow avahi to run inside a container
 RUN sed -i 's/^rlimit-nproc=.*/#&/' /etc/avahi/avahi-daemon.conf
 
 RUN mkdir -p /run/readsb

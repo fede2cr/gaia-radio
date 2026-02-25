@@ -6,21 +6,6 @@
 # so this compose file is mainly for development / single-host testing.
 
 services:
-  capture:
-    build:
-      context: ./capture
-      dockerfile: Containerfile
-    image: gaia-radio-capture
-    container_name: gaia-radio-capture
-    restart: unless-stopped
-    network_mode: host
-    privileged: true
-    devices:
-      - /dev/bus/usb:/dev/bus/usb
-    environment:
-      - RTL_TCP_PORT=1234
-      - RTL_TCP_DEVICE_INDEX=0
-
   processing:
     build:
       context: ./processing
@@ -29,8 +14,6 @@ services:
     container_name: gaia-radio-processing
     restart: unless-stopped
     network_mode: host
-    depends_on:
-      - capture
     environment:
       - READSB_NET_BO_PORT=30005
       - READSB_NET_RO_PORT=30002
@@ -49,4 +32,5 @@ services:
       - processing
     environment:
       - WEB_PORT=8080
-      - DISCOVERY_TIMEOUT=60
+      - PROCESSING_HOST=localhost
+      - PROCESSING_PORT=30005
