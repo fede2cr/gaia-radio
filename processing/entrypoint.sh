@@ -1,12 +1,6 @@
 #!/bin/bash
 set -e
 
-READSB_NET_RO_PORT="${READSB_NET_RO_PORT:-30002}"
-READSB_NET_SBS_PORT="${READSB_NET_SBS_PORT:-30003}"
-READSB_NET_BO_PORT="${READSB_NET_BO_PORT:-30005}"
-READSB_NET_RI_PORT="${READSB_NET_RI_PORT:-30001}"
-READSB_EXTRA_ARGS="${READSB_EXTRA_ARGS:-}"
-
 CAPTURE_SERVICE_TYPE="_adsbbeast._tcp"
 ANNOUNCE_SERVICE_TYPE="_readsb._tcp"
 BASE_NAME="gaia-radio-processing"
@@ -151,19 +145,18 @@ INSTANCE_NUM=$(find_next_instance "$ANNOUNCE_SERVICE_TYPE" "$BASE_NAME")
 INSTANCE_NAME="${BASE_NAME}-${INSTANCE_NUM}"
 echo "[processing] This instance will be: ${INSTANCE_NAME}"
 
-announce_service "$INSTANCE_NAME" "$ANNOUNCE_SERVICE_TYPE" "$READSB_NET_BO_PORT"
+announce_service "$INSTANCE_NAME" "$ANNOUNCE_SERVICE_TYPE" "8181"
 
-echo "[processing] Starting readsb..."
-exec /usr/local/bin/readsb \
-    --metric \
-    --net \
-    --net-only \
-    --net-connector "${CAPTURE_HOST},${CAPTURE_PORT},beast_in" \
-    --net-bo-port "$READSB_NET_BO_PORT" \
-    --net-ro-port "$READSB_NET_RO_PORT" \
-    --net-sbs-port "$READSB_NET_SBS_PORT" \
-    --net-ri-port "$READSB_NET_RI_PORT" \
-    --write-json /run/readsb \
-    --write-json-every 1 \
-    --json-location-accuracy 2 \
-    $READSB_EXTRA_ARGS
+BEAST_SOURCE="${CAPTURE_HOST}:${CAPTURE_PORT}"
+RS1090_OUTPUT_DIR="${RS1090_OUTPUT_DIR:-/run/readsb}"
+RS1090_DB_PATH="${RS1090_DB_PATH:-/var/lib/co2tracker/co2.db}"
+RS1090_LISTEN="${RS1090_LISTEN:-0.0.0.0:8181}"
+
+echo "[processing] Starting rs1090 (beast_source=${BEAST_SOURCE})..."
+exec /usr/local/bin/rs1090 \
+    --beast-source "${BEAST_SOURCE}" \
+    --output-dir "${RS1090_OUTPUT_DIR}" \
+    --db-path "${RS1090_DB_PATH}" \
+    --listen "${RS1090_LISTEN}" \
+    ${RECEIVER_LAT:+--receiver-lat "$RECEIVER_LAT"} \
+    ${RECEIVER_LON:+--receiver-lon "$RECEIVER_LON"}

@@ -1,28 +1,22 @@
-FROM debian:trixie-slim AS builder
+# ── Stage 1: build rs1090 ────────────────────────────────────────────
+FROM rust:1-slim-trixie AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+    pkg-config \
     ca-certificates \
     git \
-    librtlsdr-dev \
-    libncurses-dev \
-    libzstd-dev \
-    pkg-config \
-    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 https://github.com/wiedehopf/readsb.git /src/readsb
+RUN git clone --depth 1 https://github.com/fede2cr/rs1090.git /src/rs1090
 
-WORKDIR /src/readsb
-RUN make RTLSDR=yes OPTIMIZE="-O2"
+WORKDIR /src/rs1090
+RUN cargo build --release && \
+    strip target/release/rs1090
 
-# --- Runtime stage ---
+# ── Stage 2: runtime ────────────────────────────────────────────────
 FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    librtlsdr0 \
-    libncurses6 \
-    libzstd1 \
     avahi-daemon \
     avahi-utils \
     dbus \
@@ -30,16 +24,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /src/readsb/readsb /usr/local/bin/readsb
+COPY --from=builder /src/rs1090/target/release/rs1090 /usr/local/bin/rs1090
 
 # Allow avahi to run inside a container
 RUN sed -i 's/^rlimit-nproc=.*/#&/' /etc/avahi/avahi-daemon.conf
 
-RUN mkdir -p /run/readsb
+RUN mkdir -p /run/readsb /var/lib/co2tracker
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-
-EXPOSE 30002 30003 30005
 
 ENTRYPOINT ["tini", "--", "/entrypoint.sh"]

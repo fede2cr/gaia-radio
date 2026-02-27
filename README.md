@@ -234,4 +234,11 @@ A green dot indicates the server daemon is active; grey means browser-only mode.
 
 The panel can be collapsed by clicking its header.
 
-> **Note:** Emission values are rough estimates based on typical cruise fuel burn. The server uses ADS-B category-based factors; the client uses more accurate ICAO type-specific factors when available. Actual emissions vary with payload, altitude, weather, and phase of flight.
+> **Note:** Emission values are estimates based on published fuel-burn data
+> (Boeing/Airbus performance summaries, Aircraft Commerce guides, ATR/Bombardier
+> specs) multiplied by the IPCC kerosene emission factor of 3.16 kg CO₂/kg.
+> The server uses ADS-B category-based factors; the client uses type-specific
+> factors for ~150 ICAO codes. Actual emissions vary with payload, altitude,
+> weather, and phase of flight. See
+> [`web/CO2_METHODOLOGY.md`](web/CO2_METHODOLOGY.md) for the full derivation,
+> source references, and known limitations.

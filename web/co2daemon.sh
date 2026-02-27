@@ -7,6 +7,9 @@
 # so the web UI always has accurate all-time figures, even when no
 # browser is open.
 #
+# Emission factors: fuel burn (kg/km) × 3.16 (IPCC kerosene CO₂ factor).
+# See CO2_METHODOLOGY.md for full derivation and sources.
+#
 # Persistent state in /var/lib/co2tracker/ — mount a volume there for
 # data that survives container restarts.
 
@@ -63,11 +66,13 @@ while true; do
         maxJ = 50; minM = 0.01
 
         # Emission factors by ADS-B emitter category (kg CO₂/km)
-        ef["A1"]=0.8;  ef["A2"]=1.5;  ef["A3"]=5.0;  ef["A4"]=8.0
-        ef["A5"]=20.0; ef["A6"]=20.0; ef["A7"]=0.3
-        ef["B1"]=0.1;  ef["B2"]=0.3;  ef["B4"]=0.1;  ef["B6"]=0.1
-        ef["C1"]=0.01; ef["C3"]=0.01
-        defEf = 5.0
+        # Derived from fleet-average fuel burn × 3.16 (IPCC kerosene factor).
+        # See CO2_METHODOLOGY.md §6.2 for rationale.
+        ef["A1"]=1.2;  ef["A2"]=3.5;  ef["A3"]=9.0;  ef["A4"]=13.9
+        ef["A5"]=22.0; ef["A6"]=22.0; ef["A7"]=0.5
+        ef["B1"]=0.0;  ef["B2"]=0.1;  ef["B4"]=0.0;  ef["B6"]=0.1
+        ef["C1"]=0.0;  ef["C3"]=0.0
+        defEf = 7.0
 
         # Load previous positions
         while ((getline < posFile) > 0) { plat[$1]=$2+0; plon[$1]=$3+0 }
